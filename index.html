@@ -1,722 +1,529 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { initializeApp } from "firebase/app";
-import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken, createUserWithEmailAndPassword } from "firebase/auth";
-import { getFirestore, doc, setDoc, updateDoc, arrayUnion, serverTimestamp, getDoc, collection, addDoc, onSnapshot } from "firebase/firestore";
-import { 
-  BookOpen, 
-  ChevronLeft, 
-  ShieldCheck, 
-  User, 
-  Download, 
-  Sparkles, 
-  Plus, 
-  Send, 
-  Search, 
-  HelpCircle, 
-  X, 
-  Menu, 
-  Eye, 
-  Edit3, 
-  CheckCircle,
-  LogOut,
-  Wand2,
-  Trash2,
-  ExternalLink,
-  Loader2,
-  Mail
-} from 'lucide-react';
-
-// --- Configuration ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-  apiKey: "AIzaSyDT5flU7tNbivQ3aadqFJnGqgtSs-uikGo",
-  authDomain: "cholar-bubbles.firebaseapp.com",
-  projectId: "cholar-bubbles",
-  storageBucket: "cholar-bubbles.firebasestorage.app",
-  messagingSenderId: "965320932006",
-  appId: "1:965320932006:web:eeeefce099c0422d4e9267",
-  measurementId: "G-Q08F6MFNCD"
-};
-
-const apiKey = ""; // Gemini API Key
-// Ensure we use the provided app_id for permission scope
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'scholar-bubbles-default';
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-// --- Icon Mapping Helper ---
-const ICONS = {
-  'book-open': BookOpen,
-  'chevron-left': ChevronLeft,
-  'shield-check': ShieldCheck,
-  'user': User,
-  'download': Download,
-  'sparkles': Sparkles,
-  'plus': Plus,
-  'send': Send,
-  'search': Search,
-  'help-circle': HelpCircle,
-  'x': X,
-  'menu': Menu,
-  'eye': Eye,
-  'edit-3': Edit3,
-  'check-circle': CheckCircle,
-  'log-out': LogOut,
-  'wand-2': Wand2,
-  'trash-2': Trash2,
-  'external-link': ExternalLink,
-  'loader-2': Loader2,
-  'mail': Mail
-};
-
-const Icon = ({ name, size = 20, className = "" }) => {
-  const LucideIcon = ICONS[name];
-  if (!LucideIcon) return null;
-  return <LucideIcon size={size} className={className} />;
-};
-
-// --- Content & Logic Constants ---
-
-const cleanMarkdown = (text) => {
-  if (!text) return "";
-  let cleaned = text
-      .replace(/\*\*/g, '') // הסרת הדגשות
-      .replace(/###/g, '')  // הסרת כותרות
-      .replace(/#/g, '')
-      .replace(/json/g, '')
-      .replace(/```/g, '')
-      // הסרת פתיחים נפוצים
-      .replace(/^(הנה|להלן|ובכן|תשובה|הפסקה|פסקה|תוכן).*?[:\n]/s, '')
-      // הסרת אותיות בודדות בתחילת שורה שעלולות להיווצר כארטיפקט
-      .replace(/^[א-ת]\s*\n/s, '') 
-      .trim();
-  
-  return cleaned;
-};
-
-const WRITING_LEVELS = {
-  'elementary-school': {
-      label: 'בית ספר יסודי (ד\'-ו\')',
-      prompt: 'תכתוב ברמה של תלמיד בכיתה ו\' שמגיש עבודה ברמה גבוהה למורה. שפה נעימה, ברורה ולא מסובכת.'
-  },
-  'middle-school': { 
-      label: 'חטיבת ביניים', 
-      prompt: 'כתוב בשפה תקנית, מכובדת ורצינית המתאימה לעבודת הגשה בחטיבת ביניים. הימנע מסלנג או שפה מדוברת ("דיבור רחוב"), אך שמור על בהירות. השתמש במשפטים מלאים ומובנים, ללא מונחים אקדמיים מסובכים מדי.' 
-  },
-  'high-school': { 
-      label: 'תיכון', 
-      prompt: 'חשוב ביותר: תכתוב ברמה של עבודה שמוגשת על ידי תלמידים בגיל 18 (עבודת גמר בתיכון). רמה גבוהה, תקנית ועשירה, מבנה לוגי מורכב.' 
-  },
-  'academic': { 
-      label: 'אקדמי', 
-      prompt: 'כתוב בשפה אקדמית מלאה וגבוהה. השתמש בטרמינולוגיה מחקרית, משפטים מורכבים וניסוחים אובייקטיביים.' 
-  }
-};
-
-const INITIAL_DATA = {
-  'תקציר': [
-      { id: 'abs-1', title: 'מטרת המחקר והרקע', rawInput: '', refinedContent: '' },
-      { id: 'abs-2', title: 'שאלת המחקר המרכזית', rawInput: '', refinedContent: '' },
-      { id: 'abs-3', title: 'מתודולוגיה בקצרה', rawInput: '', refinedContent: '' },
-      { id: 'abs-4', title: 'ממצאים ותרומת המחקר', rawInput: '', refinedContent: '' }
-  ],
-  'מבוא': [
-      { id: 'intro-1', title: 'הצגת הנושא והקשר רחב', rawInput: '', refinedContent: '' },
-      { id: 'intro-2', title: 'סקירה היסטורית/חברתית קצרה', rawInput: '', refinedContent: '' },
-      { id: 'intro-3', title: 'חשיבות המחקר בעת הנוכחית', rawInput: '', refinedContent: '' },
-      { id: 'intro-4', title: 'שאלת המחקר והשערות', rawInput: '', refinedContent: '' }
-  ],
-  'גוף העבודה': [
-      { id: 'body-1', title: 'סקירה תיאורטית וספרותית', rawInput: '', refinedContent: '' },
-      { id: 'body-2', title: 'טיעון מרכזי ראשון - ביסוס', rawInput: '', refinedContent: '' },
-      { id: 'body-3', title: 'ניתוח מקרה או דוגמה א׳', rawInput: '', refinedContent: '' },
-      { id: 'body-4', title: 'טיעון מרכזי שני - הרחבה', rawInput: '', refinedContent: '' },
-      { id: 'body-5', title: 'ניתוח מקרה או דוגמה ב׳', rawInput: '', refinedContent: '' },
-      { id: 'body-6', title: 'דיון ביקורתי ונקודות מבט שונות', rawInput: '', refinedContent: '' },
-      { id: 'body-7', title: 'אינטגרציה של הטיעונים', rawInput: '', refinedContent: '' }
-  ],
-  'ממצאים': [
-      { id: 'res-1', title: 'תיאור הממצאים העיקריים', rawInput: '', refinedContent: '' },
-      { id: 'res-2', title: 'ניתוח נתונים (כמותי/איכותני)', rawInput: '', refinedContent: '' },
-      { id: 'res-3', title: 'השוואה בין השערות למציאות', rawInput: '', refinedContent: '' },
-      { id: 'res-4', title: 'משמעות הממצאים', rawInput: '', refinedContent: '' }
-  ],
-  'סיכום': [
-      { id: 'conc-1', title: 'תמצית המסקנות', rawInput: '', refinedContent: '' },
-      { id: 'conc-2', title: 'מענה סופי לשאלת המחקר', rawInput: '', refinedContent: '' },
-      { id: 'conc-3', title: 'מגבלות המחקר', rawInput: '', refinedContent: '' },
-      { id: 'conc-4', title: 'המלצות למחקר עתידי', rawInput: '', refinedContent: '' }
-  ],
-  'ביבליוגרפיה': []
-};
-
-// --- Components ---
-
-const AuthScreen = ({ onAuthSuccess }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const saveUserToDB = async (user) => {
-    try {
-        const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
-        await setDoc(userRef, {
-            email: user.email,
-            displayName: user.displayName || 'משתמש',
-            lastLogin: serverTimestamp(),
-            uid: user.uid
-        }, { merge: true });
-        
-        await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'activity_log'), {
-            action: "login",
-            timestamp: serverTimestamp()
-        });
-    } catch (e) {
-        console.error("Error saving user to DB:", e);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      const result = await signInWithPopup(auth, provider);
-      await saveUserToDB(result.user);
-      onAuthSuccess(result.user);
-    } catch (err) { 
-        console.error(err);
-        setError('שגיאה בהתחברות עם גוגל'); 
-    }
-  };
-
-  const handleEmailAuth = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      let result;
-      if (isRegistering) {
-          result = await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-          result = await signInWithEmailAndPassword(auth, email, password);
-      }
-      await saveUserToDB(result.user);
-      onAuthSuccess(result.user);
-    } catch (err) { 
-        console.error(err);
-        setError(isRegistering ? 'שגיאה בהרשמה (אולי הסיסמה חלשה?)' : 'שם משתמש או סיסמה שגויים'); 
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-slate-900 z-[60] flex items-center justify-center p-4 overflow-y-auto" dir="rtl">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 text-center relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-full h-2 bg-indigo-600"></div>
-        <div className="mb-6 flex justify-center"><ShieldCheck size={48} className="text-indigo-600" /></div>
-        <h2 className="text-2xl font-black mb-2 tracking-tight">ברוכים הבאים ל-ScholarBubbles</h2>
-        <p className="text-slate-500 mb-8 text-sm font-medium">כלי עזר לכתיבת עבודות ומאמרים<br/>מבית היוצר של <span className="text-indigo-600 font-bold">Toledano EdTech</span></p>
-        
-        <button onClick={handleGoogleSignIn} className="w-full flex items-center justify-center gap-3 border-2 border-slate-100 p-3 rounded-xl hover:bg-slate-50 transition-all mb-6">
-          <img src="[https://www.gstatic.com/firebasejs/ui/2.0.0/images/action/google.svg](https://www.gstatic.com/firebasejs/ui/2.0.0/images/action/google.svg)" className="w-5" alt="Google" />
-          <span className="font-bold">המשך עם Google</span>
-        </button>
-
-        <div className="relative mb-6">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
-          <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-slate-400">או הזדהות רגילה</span></div>
-        </div>
-
-        <form onSubmit={handleEmailAuth} className="space-y-4 text-right">
-          <div>
-            <label className="text-xs font-bold mr-1 block mb-1 text-slate-600">אימייל</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl outline-none focus:ring-2 ring-indigo-100 transition-all" required />
-          </div>
-          <div>
-            <label className="text-xs font-bold mr-1 block mb-1 text-slate-600">סיסמה</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl outline-none focus:ring-2 ring-indigo-100 transition-all" required />
-          </div>
-          {error && <p className="text-red-500 text-xs mt-2 bg-red-50 p-2 rounded">{error}</p>}
-          <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold hover:bg-indigo-700 mt-4 transition-colors shadow-lg shadow-indigo-100">
-            {loading ? <Loader2 className="animate-spin mx-auto" size={20} /> : (isRegistering ? 'הרשמה' : 'כניסה')}
-          </button>
-        </form>
-        
-        <button onClick={() => setIsRegistering(!isRegistering)} className="mt-4 text-xs text-indigo-500 hover:underline">
-            {isRegistering ? 'יש לך כבר חשבון? התחבר' : 'אין לך חשבון? הירשם כאן'}
-        </button>
-      </motion.div>
-    </div>
-  );
-};
-
-const WelcomeScreen = ({ user, onSelect, onLogout }) => (
-  <div className="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4 text-right" dir="rtl">
-    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="max-w-4xl w-full bg-white rounded-2xl md:rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] md:max-h-none overflow-y-auto">
-      <div className="md:w-1/2 bg-indigo-600 p-8 md:p-12 text-white flex flex-col justify-center items-center md:items-start text-center md:text-right relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-600 to-indigo-800 opacity-50"></div>
-        <div className="relative z-10">
-            <div className="mb-4 md:mb-6">
-                <BookOpen size={48} className="text-indigo-200" />
-            </div>
-            <h1 className="text-3xl md:text-4xl font-black mb-2 md:mb-4">ScholarBubbles</h1>
-            <p className="text-indigo-100 text-base md:text-lg font-medium leading-relaxed mb-4">
-                כלי עזר לכתיבת עבודות ומאמרים<br/>
-                <span className="text-white opacity-80 text-sm">מבית היוצר של Toledano EdTech</span>
-            </p>
-            <div className="mt-4 inline-flex items-center gap-2 bg-white/10 px-4 py-2 rounded-full text-xs backdrop-blur-sm border border-white/20">
-                <User size={14} /> שלום, {user.displayName || user.email}
-            </div>
-        </div>
-      </div>
-      <div className="md:w-1/2 p-6 md:p-12 bg-white flex flex-col justify-center">
-        <h2 className="text-lg md:text-xl font-bold mb-6 md:mb-8 text-slate-800 text-center md:text-right">בחר/י את רמת הכתיבה:</h2>
-        <div className="space-y-3 md:space-y-4">
-          {Object.entries(WRITING_LEVELS).map(([key, info]) => (
-            <button key={key} onClick={() => onSelect(key)} className="w-full text-right p-4 md:p-5 rounded-xl border-2 border-slate-100 hover:border-indigo-500 hover:bg-indigo-50 transition-all group flex items-center justify-between">
-              <span className="font-bold text-sm md:text-base text-slate-900">{info.label}</span>
-              <div className="text-slate-300 group-hover:text-indigo-500">
-                <ChevronLeft size={20} />
-              </div>
-            </button>
-          ))}
-        </div>
-        <button onClick={onLogout} className="mt-8 mx-auto md:mx-0 flex items-center gap-2 text-sm text-slate-400 hover:text-red-500 transition-colors">
-            <LogOut size={16} /> התנתק
-        </button>
-      </div>
-    </motion.div>
-  </div>
-);
-
-// --- Main App Logic ---
-
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [level, setLevel] = useState(null);
-  const [view, setView] = useState('מבוא'); 
-  const [paperTitle, setPaperTitle] = useState('כותרת העבודה שלך');
-  const [allData, setAllData] = useState(INITIAL_DATA);
-  const [loadingAuth, setLoadingAuth] = useState(true);
-  
-  // State for Chat & Search persistence
-  const [questionChatMessages, setQuestionChatMessages] = useState([]);
-  const [sourceChatMessages, setSourceChatMessages] = useState([]);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [showMobilePreview, setShowMobilePreview] = useState(false);
-
-  const sections = ['תקציר', 'מבוא', 'גוף העבודה', 'ממצאים', 'סיכום', 'ביבליוגרפיה'];
-
-  // Auth Initialization
-  useEffect(() => {
-    const init = async () => {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-            await signInWithCustomToken(auth, __initial_auth_token);
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scholar Bubbles - מקומי</title>
+    
+    <!-- טעינת העיצוב (Tailwind CSS) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- הגדרת מפת הייבוא - קריטי כדי שהדפדפן ידע מאיפה להביא את React ופיירבייס -->
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.3.1",
+            "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+            "framer-motion": "https://esm.sh/framer-motion@10.16.4?deps=react@18.3.1,react-dom@18.3.1",
+            "lucide-react": "https://esm.sh/lucide-react@0.292.0?deps=react@18.3.1",
+            "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+            "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"
         }
-        setLoadingAuth(false);
-    };
-    init();
-    
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-        setUser(u);
-        setLoadingAuth(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const trackAction = async (actionType, details = {}) => {
-      if (!user) return;
-      try {
-          await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'activity_log'), {
-              action: actionType,
-              ...details,
-              timestamp: serverTimestamp()
-          });
-      } catch (e) { console.error("Tracking error", e); }
-  };
-
-  const handleLevelSelect = (l) => {
-      setLevel(l);
-      trackAction("level_selected", { level: l });
-  };
-
-  const handleUpdate = (id, updates) => {
-    setAllData(prev => ({ ...prev, [view]: prev[view].map(b => b.id === id ? {...b, ...updates} : b) }));
-  };
-
-  const handleRefine = async (id) => {
-    const bubble = allData[view].find(x => x.id === id);
-    if (!bubble.rawInput.trim()) return;
-
-    const isBibliography = view === 'ביבליוגרפיה';
-    handleUpdate(id, { isRefining: true });
-    
-    trackAction("refine_attempt", { section: view, bubbleId: id });
-
-    let promptText = '';
-    
-    if (isBibliography) {
-        promptText = `המטרה: יצירת פריט ביבליוגרפי תקני ומדויק.
-        קח את המידע הגולמי: "${bubble.rawInput}".
-        עצב אותו לפי "כללי הציטוט האחיד" (הנהוגים במשפט ובמדעי הרוח בישראל) או APA.
-        החזר רק את השורה הביבליוגרפית המעוצבת, ללא טקסט נוסף.`;
-    } else {
-        const previousContent = allData[view]
-            .slice(0, allData[view].findIndex(b => b.id === id))
-            .map(b => b.refinedContent)
-            .filter(Boolean)
-            .join("\n\n");
-
-        promptText = `הנושא: ${paperTitle}. הפרק: ${view}.
-        
-        הנחיית רמה: ${WRITING_LEVELS[level].prompt}
-        
-        טקסט קודם רציף בפרק זה (להמשכיות):
-        ${previousContent || "זוהי תחילת הפרק"}
-
-        מידע גולמי לבועה זו:
-        "${bubble.rawInput}"
-        
-        משימה:
-        כתוב פסקה מורחבת (לפחות 150-200 מילים) המבוססת על המידע הגולמי.
-        
-        הנחיות נוספות:
-        1. הרחב את הנקודות לטקסט מלא ועשיר.
-        2. כתוב כהמשך ישיר לטקסט הקודם. בלי פתיחות כמו "בפסקה זו" ובלי סיומות כמו "לסיכום".
-        3. חשוב מאוד: חלק את הטקסט לפסקאות פנימיות נפרדות בעזרת שורה רווח. אל תכתוב גוש טקסט אחד ארוך.
-        4. אל תשתמש בכוכביות.
-        5. אל תכתוב שום מילות פתיחה (כמו 'הנה', 'להלן', 'תשובה'). התחל ישר במשפט הראשון של הפסקה.`;
     }
+    </script>
 
-    try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: promptText }] }]
-            })
-        });
-        const resJson = await response.json();
-        const text = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        handleUpdate(id, { refinedContent: cleanMarkdown(text), isRefining: false });
-        trackAction("refine_success", { section: view });
-    } catch (e) { handleUpdate(id, { isRefining: false }); }
-  };
+    <!-- טעינת Babel כדי לפענח את ה-React בדפדפן -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  const downloadAsWord = () => {
-    trackAction("download_word");
-    const styles = `
-        <style>
-            @page { size: A4; margin: 2.54cm; }
-            body { 
-                direction: rtl; 
-                text-align: right; 
-                font-family: 'David', 'Times New Roman', serif; 
-                font-size: 12pt; 
-                line-height: 150%; 
-                mso-line-height-rule: exactly;
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50">
+
+    <div id="root"></div>
+
+    <!-- כאן מתחיל הקוד של האתר -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { motion, AnimatePresence } from 'framer-motion';
+        import { initializeApp } from "firebase/app";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken, createUserWithEmailAndPassword } from "firebase/auth";
+        import { getFirestore, doc, setDoc, updateDoc, arrayUnion, serverTimestamp, getDoc, collection, addDoc, onSnapshot } from "firebase/firestore";
+        import { 
+            BookOpen, ChevronLeft, ShieldCheck, User, Download, Sparkles, Plus, Send, Search, 
+            HelpCircle, X, Menu, Eye, Edit3, CheckCircle, LogOut, Wand2, Trash2, ExternalLink, Loader2, Mail, AlertTriangle
+        } from 'lucide-react';
+
+        // --- הגדרות ---
+
+        // ההגדרות שלך מפיירבייס (נלקחו מהקוד שסיפקת)
+        const firebaseConfig = {
+  apiKey: "AIzaSyBmjoDMOZ3tfWNkkHhZM6QfYbWYbW_TMOk",
+  authDomain: "bubbles-62f45.firebaseapp.com",
+  projectId: "bubbles-62f45",
+  storageBucket: "bubbles-62f45.firebasestorage.app",
+  messagingSenderId: "549730760870",
+  appId: "1:549730760870:web:6fb70a41809aaa66ee1c67",
+  measurementId: "G-SD85C3NWGC"
+};
+
+        const apiKey = ""; // Gemini API Key (אם יש לך, הכנס כאן)
+        const appId = 'scholar-bubbles-local';
+
+        // אתחול Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- לוגיקה וקבועים ---
+
+        const cleanMarkdown = (text) => {
+            if (!text) return "";
+            return text
+                .replace(/\*\*/g, '')
+                .replace(/###/g, '')
+                .replace(/#/g, '')
+                .replace(/json/g, '')
+                .replace(/```/g, '')
+                .replace(/^(הנה|להלן|ובכן|תשובה|הפסקה|פסקה|תוכן).*?[:\n]/s, '')
+                .replace(/^[א-ת]\s*\n/s, '') 
+                .trim();
+        };
+
+        const WRITING_LEVELS = {
+            'elementary-school': {
+                label: 'בית ספר יסודי (ד\'-ו\')',
+                prompt: 'תכתוב ברמה של תלמיד בכיתה ו\' שמגיש עבודה ברמה גבוהה למורה. שפה נעימה, ברורה ולא מסובכת.'
+            },
+            'middle-school': { 
+                label: 'חטיבת ביניים', 
+                prompt: 'כתוב בשפה תקנית, מכובדת ורצינית המתאימה לעבודת הגשה בחטיבת ביניים. הימנע מסלנג או שפה מדוברת ("דיבור רחוב"), אך שמור על בהירות. השתמש במשפטים מלאים ומובנים, ללא מונחים אקדמיים מסובכים מדי.' 
+            },
+            'high-school': { 
+                label: 'תיכון', 
+                prompt: 'חשוב ביותר: תכתוב ברמה של עבודה שמוגשת על ידי תלמידים בגיל 18 (עבודת גמר בתיכון). רמה גבוהה, תקנית ועשירה, מבנה לוגי מורכב.' 
+            },
+            'academic': { 
+                label: 'אקדמי', 
+                prompt: 'כתוב בשפה אקדמית מלאה וגבוהה. השתמש בטרמינולוגיה מחקרית, משפטים מורכבים וניסוחים אובייקטיביים.' 
             }
-            h1 { font-size: 16pt; font-weight: bold; text-align: center; margin-bottom: 24pt; }
-            h2 { font-size: 14pt; font-weight: bold; margin-top: 18pt; margin-bottom: 12pt; border-bottom: 1px solid #000; }
-            p { margin-bottom: 12pt; text-align: right; line-height: 150%; }
-        </style>
-    `;
-    let content = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${paperTitle}</title>${styles}</head><body>`;
-    
-    content += `<h1>${paperTitle}</h1>`;
-    sections.forEach(sec => {
-        const bubbles = allData[sec];
-        if (bubbles?.some(b => b.refinedContent)) {
-            content += `<h2>${sec}</h2>`;
-            bubbles.forEach(b => {
-                if (b.refinedContent) {
-                    const style = sec === 'ביבליוגרפיה' ? "padding-right: 1cm; text-indent: -1cm;" : "";
-                    content += `<p style="${style}">${b.refinedContent.replace(/\n/g, '<br>')}</p>`;
+        };
+
+        const INITIAL_DATA = {
+            'תקציר': [
+                { id: 'abs-1', title: 'מטרת המחקר והרקע', rawInput: '', refinedContent: '' },
+                { id: 'abs-2', title: 'שאלת המחקר המרכזית', rawInput: '', refinedContent: '' },
+                { id: 'abs-3', title: 'מתודולוגיה בקצרה', rawInput: '', refinedContent: '' },
+                { id: 'abs-4', title: 'ממצאים ותרומת המחקר', rawInput: '', refinedContent: '' }
+            ],
+            'מבוא': [
+                { id: 'intro-1', title: 'הצגת הנושא והקשר רחב', rawInput: '', refinedContent: '' },
+                { id: 'intro-2', title: 'סקירה היסטורית/חברתית קצרה', rawInput: '', refinedContent: '' },
+                { id: 'intro-3', title: 'חשיבות המחקר בעת הנוכחית', rawInput: '', refinedContent: '' },
+                { id: 'intro-4', title: 'שאלת המחקר והשערות', rawInput: '', refinedContent: '' }
+            ],
+            'גוף העבודה': [
+                { id: 'body-1', title: 'סקירה תיאורטית וספרותית', rawInput: '', refinedContent: '' },
+                { id: 'body-2', title: 'טיעון מרכזי ראשון - ביסוס', rawInput: '', refinedContent: '' },
+                { id: 'body-3', title: 'ניתוח מקרה או דוגמה א׳', rawInput: '', refinedContent: '' },
+                { id: 'body-4', title: 'טיעון מרכזי שני - הרחבה', rawInput: '', refinedContent: '' },
+                { id: 'body-5', title: 'ניתוח מקרה או דוגמה ב׳', rawInput: '', refinedContent: '' },
+                { id: 'body-6', title: 'דיון ביקורתי ונקודות מבט שונות', rawInput: '', refinedContent: '' },
+                { id: 'body-7', title: 'אינטגרציה של הטיעונים', rawInput: '', refinedContent: '' }
+            ],
+            'ממצאים': [
+                { id: 'res-1', title: 'תיאור הממצאים העיקריים', rawInput: '', refinedContent: '' },
+                { id: 'res-2', title: 'ניתוח נתונים (כמותי/איכותני)', rawInput: '', refinedContent: '' },
+                { id: 'res-3', title: 'השוואה בין השערות למציאות', rawInput: '', refinedContent: '' },
+                { id: 'res-4', title: 'משמעות הממצאים', rawInput: '', refinedContent: '' }
+            ],
+            'סיכום': [
+                { id: 'conc-1', title: 'תמצית המסקנות', rawInput: '', refinedContent: '' },
+                { id: 'conc-2', title: 'מענה סופי לשאלת המחקר', rawInput: '', refinedContent: '' },
+                { id: 'conc-3', title: 'מגבלות המחקר', rawInput: '', refinedContent: '' },
+                { id: 'conc-4', title: 'המלצות למחקר עתידי', rawInput: '', refinedContent: '' }
+            ],
+            'ביבליוגרפיה': []
+        };
+
+        // --- קומפוננטות ---
+
+        const AuthScreen = ({ onAuthSuccess }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [isRegistering, setIsRegistering] = useState(false);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+
+            const saveUserToDB = async (user) => {
+                try {
+                    const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
+                    await setDoc(userRef, {
+                        email: user.email,
+                        displayName: user.displayName || 'משתמש',
+                        lastLogin: serverTimestamp(),
+                        uid: user.uid
+                    }, { merge: true });
+                } catch (e) {
+                    console.error("Error saving user to DB:", e);
                 }
-            });
-        }
-    });
-    content += `</body></html>`;
-    
-    const blob = new Blob(['\ufeff', content], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${paperTitle}.doc`;
-    link.click();
-  };
-
-  const AIChatComponent = ({ title, subTitle, systemPrompt, messages, setMessages, withSearchTool = false }) => {
-    const [input, setInput] = useState('');
-    const [loading, setLoading] = useState(false);
-    const scrollRef = useRef(null);
-
-    useEffect(() => {
-        if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }, [messages]);
-
-    const sendMessage = async () => {
-        if (!input.trim() || loading) return;
-        const userMsg = { role: 'user', text: input };
-        setMessages(prev => [...prev, userMsg]);
-        setInput('');
-        setLoading(true);
-        trackAction(withSearchTool ? "search_query" : "research_chat", { query: input });
-
-        try {
-            const payload = {
-                contents: [...messages, userMsg].map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.text }] })),
-                systemInstruction: { parts: [{ text: systemPrompt }] }
             };
-            if (withSearchTool) {
-                payload.tools = [{ google_search: {} }];
-            }
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            const data = await response.json();
-            let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "מצטער, לא הצלחתי לעבד את הבקשה.";
-            
-            const grounding = data.candidates?.[0]?.groundingMetadata?.groundingAttributions;
-            if (grounding) {
-                aiText += "\n\nמקורות שמצאתי:\n";
-                grounding.forEach(g => {
-                    if (g.web?.uri && g.web?.title) {
-                        aiText += `• [${g.web.title}](${g.web.uri})\n`;
+            const handleGoogleSignIn = async () => {
+                const provider = new GoogleAuthProvider();
+                try {
+                    const result = await signInWithPopup(auth, provider);
+                    await saveUserToDB(result.user);
+                    onAuthSuccess(result.user);
+                } catch (err) { 
+                    console.error("Google Login Error:", err);
+                    if (err.code === 'auth/unauthorized-domain') {
+                        setError('שגיאה: הדומיין אינו מורשה. יש להוסיף את הדומיין הנוכחי (למשל localhost) לרשימת Authorized Domains במסוף Firebase (תחת Authentication -> Settings).');
+                    } else if (err.code === 'auth/popup-closed-by-user') {
+                        setError('החלון נסגר לפני סיום ההתחברות.');
+                    } else if (err.code === 'auth/popup-blocked') {
+                        setError('הדפדפן חסם את החלון הקופץ. אנא אפשר חלונות קופצים לאתר זה.');
+                    } else {
+                        setError(`שגיאה בהתחברות: ${err.message}`);
                     }
-                });
-            }
+                }
+            };
 
-            setMessages(prev => [...prev, { role: 'ai', text: cleanMarkdown(aiText) }]);
-        } catch (e) {
-            setMessages(prev => [...prev, { role: 'ai', text: "שגיאה בתקשורת עם השרת." }]);
-        }
-        setLoading(false);
-    };
+            const handleEmailAuth = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                setError('');
+                try {
+                    let result;
+                    if (isRegistering) {
+                        result = await createUserWithEmailAndPassword(auth, email, password);
+                    } else {
+                        result = await signInWithEmailAndPassword(auth, email, password);
+                    }
+                    await saveUserToDB(result.user);
+                    onAuthSuccess(result.user);
+                } catch (err) { 
+                    console.error("Email Login Error:", err);
+                    if (err.code === 'auth/wrong-password') {
+                        setError('הסיסמה שגויה.');
+                    } else if (err.code === 'auth/user-not-found') {
+                        setError('לא נמצא משתמש עם האימייל הזה.');
+                    } else if (err.code === 'auth/email-already-in-use') {
+                        setError('האימייל הזה כבר נמצא בשימוש.');
+                    } else if (err.code === 'auth/weak-password') {
+                        setError('הסיסמה חלשה מדי (חייבת להיות לפחות 6 תווים).');
+                    } else {
+                        setError('שגיאה בהתחברות/הרשמה. בדוק את הפרטים ונסה שוב.');
+                    }
+                }
+                setLoading(false);
+            };
 
-    return (
-        <div className="chat-container bg-white rounded-2xl border overflow-hidden shadow-sm h-full flex flex-col">
-            <div className="p-4 border-b bg-slate-50">
-                <h2 className="text-lg md:text-xl font-black text-indigo-600 flex items-center gap-2">{title}</h2>
-                <p className="text-xs text-slate-500">{subTitle}</p>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white" ref={scrollRef}>
-                {messages.length === 0 && <div className="text-center text-slate-400 py-10">התחל שיחה...</div>}
-                {messages.map((m, i) => (
-                    <div key={i} className={`flex ${m.role === 'user' ? 'justify-start' : 'justify-end'}`}>
-                        <div className={`max-w-[85%] p-3 rounded-2xl text-sm whitespace-pre-wrap ${m.role === 'user' ? 'bg-slate-100 text-slate-800' : 'bg-indigo-50 text-indigo-900 border border-indigo-100'}`}>
-                            {m.text.split('\n').map((line, idx) => {
-                                const parts = line.split(/(\[(?:.*?)\]\((?:.*?)\)|https?:\/\/[^\s]+)/g);
-                                return (
-                                    <div key={idx} className="flex flex-wrap gap-1">
-                                        {parts.map((part, pIdx) => {
-                                            const mdLink = part.match(/\[(.*?)\]\((.*?)\)/);
-                                            if (mdLink) {
-                                                return <a key={pIdx} href={mdLink[2]} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-bold">{mdLink[1]}</a>;
-                                            }
-                                            if (part.match(/^https?:\/\//)) {
-                                                return <a key={pIdx} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline break-all">{part}</a>;
-                                            }
-                                            return <span key={pIdx}>{part}</span>;
-                                        })}
-                                    </div>
-                                );
-                            })}
+            return (
+                <div className="fixed inset-0 bg-slate-900 z-[60] flex items-center justify-center p-4 overflow-y-auto" dir="rtl">
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 text-center relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-full h-2 bg-indigo-600"></div>
+                        <div className="mb-6 flex justify-center"><ShieldCheck size={48} className="text-indigo-600" /></div>
+                        <h2 className="text-2xl font-black mb-2 tracking-tight">ברוכים הבאים ל-ScholarBubbles</h2>
+                        
+                        <button onClick={handleGoogleSignIn} className="w-full flex items-center justify-center gap-3 border-2 border-slate-100 p-3 rounded-xl hover:bg-slate-50 transition-all mb-6">
+                            <span className="font-bold">המשך עם Google</span>
+                        </button>
+
+                        <div className="relative mb-6">
+                            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
+                            <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-slate-400">או הזדהות רגילה</span></div>
                         </div>
-                    </div>
-                ))}
-                {loading && <div className="text-xs text-slate-400 animate-pulse mr-4">ה-AI מקליד...</div>}
-            </div>
-            <div className="p-3 bg-white border-t flex gap-2">
-                <input 
-                    className="flex-1 px-4 py-2 bg-slate-50 border rounded-full text-sm outline-none focus:ring-2 ring-indigo-100" 
-                    placeholder="כתוב כאן..." 
-                    value={input} 
-                    onChange={e => setInput(e.target.value)} 
-                    onKeyPress={e => e.key === 'Enter' && sendMessage()} 
-                />
-                <button onClick={sendMessage} className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center hover:bg-indigo-700 disabled:opacity-50" disabled={loading}>
-                    <Send size={16} />
-                </button>
-            </div>
-        </div>
-    );
-  };
 
-  if (loadingAuth) return <div className="flex h-screen items-center justify-center text-indigo-600"><Loader2 className="animate-spin" size={48}/></div>;
-  if (!user) return <AuthScreen onAuthSuccess={setUser} />;
-  if (!level) return <WelcomeScreen user={user} onSelect={handleLevelSelect} onLogout={() => signOut(auth)} />;
-
-  return (
-    <div className="flex h-[100dvh] overflow-hidden bg-white flex-col md:flex-row font-sans" dir="rtl">
-        {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 text-white shadow-md z-50">
-            {/* Center/Left: Title & Preview Toggle */}
-            <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 font-bold">
-                    <BookOpen size={20} className="text-indigo-400" /> ScholarBubbles
+                        <form onSubmit={handleEmailAuth} className="space-y-4 text-right">
+                            <input type="email" placeholder="אימייל" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl border" required />
+                            <input type="password" placeholder="סיסמה" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl border" required />
+                            {error && (
+                                <div className="text-red-600 text-xs bg-red-50 p-2 rounded border border-red-100 flex items-start gap-2 text-right">
+                                    <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                                    <span>{error}</span>
+                                </div>
+                            )}
+                            <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold hover:bg-indigo-700">
+                                {loading ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'הרשמה' : 'כניסה')}
+                            </button>
+                        </form>
+                        <button onClick={() => setIsRegistering(!isRegistering)} className="mt-4 text-xs text-indigo-500 hover:underline">
+                            {isRegistering ? 'יש לך כבר חשבון? התחבר' : 'אין לך חשבון? הירשם כאן'}
+                        </button>
+                    </motion.div>
                 </div>
-                <button onClick={() => setShowMobilePreview(!showMobilePreview)} className="flex items-center gap-1 text-sm bg-slate-800 px-3 py-1 rounded-full">
-                    {showMobilePreview ? <><Edit3 size={14} /> עריכה</> : <><Eye size={14} /> תצוגה</>}
-                </button>
-            </div>
-            {/* Right side: Menu (Hamburger) - Moved to right for RTL */}
-            <div className="flex items-center gap-4">
-                <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-                    {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-                </button>
-            </div>
-        </div>
+            );
+        };
 
-        {/* Sidebar */}
-        <aside className={`fixed inset-y-0 right-0 z-40 w-64 bg-slate-900 text-white p-6 transform transition-transform duration-300 ease-in-out ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'} md:relative md:translate-x-0 md:block md:shadow-xl`}>
-            <div className="hidden md:block mb-8 cursor-pointer" onClick={() => setLevel(null)}>
-                <h1 className="text-xl font-bold flex items-center gap-3"><BookOpen className="text-indigo-400" /> ScholarBubbles</h1>
-                <div className="text-[10px] mt-2 bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded inline-block">רמת {WRITING_LEVELS[level].label}</div>
-            </div>
-            
-            <div className="md:hidden mb-6 pb-4 border-b border-slate-700 mt-12">
-                <p className="text-xs text-slate-400">רמה נוכחית:</p>
-                <p className="font-bold text-indigo-300">{WRITING_LEVELS[level].label}</p>
-                <button onClick={() => {setLevel(null); setMobileMenuOpen(false);}} className="text-xs text-white underline mt-1">שנה רמה</button>
-            </div>
-
-            <nav className="flex-1 space-y-1 overflow-y-auto max-h-[calc(100vh-150px)]">
-                <button onClick={() => {setView('question'); setMobileMenuOpen(false);}} className={`w-full text-right p-3 rounded-xl text-sm mb-2 border border-slate-700 flex items-center gap-2 ${view === 'question' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}><HelpCircle size={14}/> שאלת מחקר AI</button>
-                <button onClick={() => {setView('search'); setMobileMenuOpen(false);}} className={`w-full text-right p-3 rounded-xl text-sm mb-6 border border-slate-700 flex items-center gap-2 ${view === 'search' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}><Search size={14}/> חיפוש מקורות AI</button>
-                
-                <div className="text-[10px] text-slate-500 font-bold uppercase mb-2 mr-2">כתיבת העבודה</div>
-                {sections.map(s => (
-                    <button key={s} onClick={() => {setView(s); setMobileMenuOpen(false);}} className={`w-full text-right flex items-center justify-between p-3 rounded-xl text-sm transition-all ${view === s ? 'bg-indigo-600 font-bold' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-                        {s}
-                        {allData[s]?.some(b => b.refinedContent) && <CheckCircle size={14} className="text-emerald-400" />}
-                    </button>
-                ))}
-            </nav>
-            <button onClick={downloadAsWord} className="hidden md:flex mt-6 bg-emerald-600 text-white p-3 rounded-xl text-xs font-bold items-center justify-center gap-2 hover:bg-emerald-700">
-                <Download size={14} /> הורדה כקובץ Word
-            </button>
-        </aside>
-
-        {mobileMenuOpen && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setMobileMenuOpen(false)} />}
-
-        <main className="flex-1 flex overflow-hidden relative">
-            <section className={`flex-1 p-4 md:p-8 overflow-y-auto border-l bg-slate-50/30 ${showMobilePreview ? 'hidden md:block' : 'block'}`}>
-                <div className="max-w-3xl mx-auto h-full flex flex-col">
-                    <div className="mb-6 p-4 bg-white border border-indigo-100 rounded-2xl shadow-sm">
-                        <label className="text-[10px] uppercase font-bold text-indigo-400 block mb-1">נושא העבודה</label>
-                        <input className="w-full bg-transparent text-lg md:text-xl font-black text-slate-800 outline-none" value={paperTitle} onChange={(e) => setPaperTitle(e.target.value)} />
+        const WelcomeScreen = ({ user, onSelect, onLogout }) => (
+            <div className="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4 text-right" dir="rtl">
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="max-w-4xl w-full bg-white rounded-2xl p-8 flex flex-col md:flex-row">
+                    <div className="md:w-1/2 bg-indigo-600 p-8 text-white rounded-xl">
+                        <BookOpen size={48} className="mb-4 text-indigo-200" />
+                        <h1 className="text-3xl font-black mb-2">ScholarBubbles</h1>
+                        <p>שלום, {user.displayName || user.email}</p>
                     </div>
+                    <div className="md:w-1/2 p-8 bg-white">
+                        <h2 className="text-xl font-bold mb-6 text-slate-800">בחר/י רמת כתיבה:</h2>
+                        <div className="space-y-3">
+                            {Object.entries(WRITING_LEVELS).map(([key, info]) => (
+                                <button key={key} onClick={() => onSelect(key)} className="w-full text-right p-4 rounded-xl border hover:bg-indigo-50 flex justify-between">
+                                    <span className="font-bold">{info.label}</span>
+                                    <ChevronLeft size={20} />
+                                </button>
+                            ))}
+                        </div>
+                        <button onClick={onLogout} className="mt-8 flex gap-2 text-sm text-slate-400 hover:text-red-500"><LogOut size={16}/> התנתק</button>
+                    </div>
+                </motion.div>
+            </div>
+        );
 
-                    {view === 'question' ? (
-                        <AIChatComponent 
-                            title="גיבוש שאלת מחקר" 
-                            subTitle="אני אעזור לך לחדד ולנסח את שאלת המחקר המדויקת ביותר."
-                            messages={questionChatMessages}
-                            setMessages={setQuestionChatMessages}
-                            systemPrompt={`אתה מנחה אקדמי מנוסה. המטרה שלך: לעזור לסטודנט לנסח שאלת מחקר אחת ברורה וממוקדת.
-                            הנחיות:
-                            1. אל תיתן הרצאות ארוכות.
-                            2. שאל שאלות מכוונות וקצרות כדי להבין את המיקוד.
-                            3. הצע ניסוחים אפשריים לשאלה.
-                            4. היה סבלני ומעודד.`}
-                        />
-                    ) : view === 'search' ? (
-                        <AIChatComponent 
-                            title="חיפוש מקורות חכם ומדויק" 
-                            subTitle="בקש ממני למצוא מקורות בנושא מסוים, כולל ספרות תורנית ומאמרים."
-                            messages={sourceChatMessages}
-                            setMessages={setSourceChatMessages}
-                            withSearchTool={true}
-                            systemPrompt={`אתה עוזר מחקר חכם וקפדן. מטרתך: לאתר עבור המשתמש מקורות מידע קיימים, אמיתיים וזמינים ברשת.
-                            
-                            הנחיות חיפוש מיוחדות:
-                            1. חפש מקורות במגוון תחומים: מאמרים אקדמיים, כתבות, וכן ספרות תורנית יהודית (משנה, גמרא, מדרשים, ספרי ראשונים ואחרונים).
-                            2. עבור ספרות תורנית: חפש באתרים כמו ספריא (Sefaria), דעת (Daat), היברובוקס (HebrewBooks), ויקיטקסט ועוד. ציין מיקום מדויק.
-                            3. עבור מאמרים כלליים: חפש בגוגל סקולר, אתרי חדשות ואתרי תוכן אמינים.
+        // --- קומפוננטה ראשית ---
 
-                            הנחיות קריטיות לתשובה:
-                            1. כל מקור חייב לכלול כותרת ברורה.
-                            2. חובה לכלול קישור ישיר ולחיץ לכל מקור. פורמט הקישור חייב להיות: [שם המקור](כתובת_האינטרנט).
-                            לדוגמה: [משנה ברורה סימן א - ספריא](https://www.sefaria.org.il/Mishnah_Berurah.1)
-                            3. ספק תיאור קצר (1-2 משפטים) על תוכן המקור.`}
-                        />
-                    ) : (
-                        <div className="pb-20">
-                            <h2 className="text-2xl md:text-3xl font-black mb-6 text-slate-900 px-2">{view}</h2>
-                            {allData[view]?.map(b => (
-                                <div key={b.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6 mb-6 hover:shadow-md transition-all">
-                                    <div className="flex justify-between items-center mb-3">
-                                        <span className={`font-bold text-xs uppercase tracking-wider ${b.id.includes('sum') ? 'text-indigo-600' : 'text-slate-400'}`}>{b.title}</span>
-                                    </div>
-                                    <textarea 
-                                        className="w-full min-h-[100px] p-4 rounded-xl bg-slate-50 text-sm leading-relaxed outline-none border border-transparent focus:border-indigo-300 focus:bg-white transition-all resize-none mb-4" 
-                                        value={b.rawInput} 
-                                        onChange={e => handleUpdate(b.id, {rawInput: e.target.value})} 
-                                        placeholder={view === 'ביבליוגרפיה' ? "הדבק כאן שם מאמר, מחבר או קישור..." : "כתוב כאן נקודות, רעיונות או טיוטה ראשונית..."} 
-                                    />
-                                    <div className="flex justify-end">
-                                        <button onClick={() => handleRefine(b.id)} disabled={b.isRefining || !b.rawInput.trim()} className="bg-indigo-600 text-white px-4 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 disabled:opacity-50 disabled:shadow-none">
-                                            {b.isRefining ? <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" /> : <Sparkles size={16} />}
-                                            {b.isRefining ? 'מעבד...' : view === 'ביבליוגרפיה' ? 'עצב כציטוט תקני' : 'הרחב וסגנן עם AI'}
-                                        </button>
-                                    </div>
+        function App() {
+            const [user, setUser] = useState(null);
+            const [level, setLevel] = useState(null);
+            const [view, setView] = useState('מבוא'); 
+            const [paperTitle, setPaperTitle] = useState('כותרת העבודה שלך');
+            const [allData, setAllData] = useState(INITIAL_DATA);
+            const [loadingAuth, setLoadingAuth] = useState(true);
+            const [questionChatMessages, setQuestionChatMessages] = useState([]);
+            const [sourceChatMessages, setSourceChatMessages] = useState([]);
+            const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+            const [showMobilePreview, setShowMobilePreview] = useState(false);
+
+            const sections = ['תקציר', 'מבוא', 'גוף העבודה', 'ממצאים', 'סיכום', 'ביבליוגרפיה'];
+
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, (u) => {
+                    setUser(u);
+                    setLoadingAuth(false);
+                });
+                return () => unsubscribe();
+            }, []);
+
+            const trackAction = async (actionType, details = {}) => {
+                if (!user) return;
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'activity_log'), {
+                        action: actionType,
+                        ...details,
+                        timestamp: serverTimestamp()
+                    });
+                } catch (e) { console.error("Tracking error", e); }
+            };
+
+            const handleLevelSelect = (l) => {
+                setLevel(l);
+                trackAction("level_selected", { level: l });
+            };
+
+            const handleUpdate = (id, updates) => {
+                setAllData(prev => ({ ...prev, [view]: prev[view].map(b => b.id === id ? {...b, ...updates} : b) }));
+            };
+
+            const handleRefine = async (id) => {
+                const bubble = allData[view].find(x => x.id === id);
+                if (!bubble.rawInput.trim()) return;
+
+                const isBibliography = view === 'ביבליוגרפיה';
+                handleUpdate(id, { isRefining: true });
+                
+                trackAction("refine_attempt", { section: view, bubbleId: id });
+
+                let promptText = '';
+                
+                if (isBibliography) {
+                    promptText = `המטרה: יצירת פריט ביבליוגרפי תקני ומדויק.
+                    קח את המידע הגולמי: "${bubble.rawInput}".
+                    עצב אותו לפי "כללי הציטוט האחיד" או APA.
+                    החזר רק את השורה הביבליוגרפית המעוצבת, ללא טקסט נוסף.`;
+                } else {
+                    const previousContent = allData[view]
+                        .slice(0, allData[view].findIndex(b => b.id === id))
+                        .map(b => b.refinedContent)
+                        .filter(Boolean)
+                        .join("\n\n");
+
+                    promptText = `הנושא: ${paperTitle}. הפרק: ${view}.
+                    הנחיית רמה: ${WRITING_LEVELS[level].prompt}
+                    טקסט קודם: ${previousContent || "זוהי תחילת הפרק"}
+                    מידע גולמי: "${bubble.rawInput}"
+                    משימה: כתוב פסקה מורחבת (לפחות 150-200 מילים).`;
+                }
+
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
+                    });
+                    const resJson = await response.json();
+                    const text = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                    handleUpdate(id, { refinedContent: cleanMarkdown(text), isRefining: false });
+                    trackAction("refine_success", { section: view });
+                } catch (e) { handleUpdate(id, { isRefining: false }); }
+            };
+
+            const downloadAsWord = () => {
+                trackAction("download_word");
+                const content = `
+                    <html dir="rtl"><body>
+                    <h1>${paperTitle}</h1>
+                    ${sections.map(sec => {
+                        const bubbles = allData[sec];
+                        if (!bubbles?.some(b => b.refinedContent)) return '';
+                        return `<h2>${sec}</h2>` + bubbles.map(b => b.refinedContent ? `<p>${b.refinedContent}</p>` : '').join('');
+                    }).join('')}
+                    </body></html>
+                `;
+                const blob = new Blob(['\ufeff', content], { type: 'application/msword' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${paperTitle}.doc`;
+                link.click();
+            };
+
+            const AIChatComponent = ({ title, subTitle, systemPrompt, messages, setMessages, withSearchTool = false }) => {
+                const [input, setInput] = useState('');
+                const [loading, setLoading] = useState(false);
+                const scrollRef = useRef(null);
+
+                useEffect(() => {
+                    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                }, [messages]);
+
+                const sendMessage = async () => {
+                    if (!input.trim() || loading) return;
+                    const userMsg = { role: 'user', text: input };
+                    setMessages(prev => [...prev, userMsg]);
+                    setInput('');
+                    setLoading(true);
+
+                    try {
+                        const payload = {
+                            contents: [...messages, userMsg].map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.text }] })),
+                            systemInstruction: { parts: [{ text: systemPrompt }] }
+                        };
+                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await response.json();
+                        let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "מצטער, לא הצלחתי לעבד את הבקשה.";
+                        setMessages(prev => [...prev, { role: 'ai', text: cleanMarkdown(aiText) }]);
+                    } catch (e) {
+                        setMessages(prev => [...prev, { role: 'ai', text: "שגיאה בתקשורת עם השרת." }]);
+                    }
+                    setLoading(false);
+                };
+
+                return (
+                    <div className="bg-white rounded-2xl border h-[500px] flex flex-col">
+                        <div className="p-4 border-b">
+                            <h2 className="font-bold text-indigo-600">{title}</h2>
+                            <p className="text-xs text-slate-500">{subTitle}</p>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
+                            {messages.map((m, i) => (
+                                <div key={i} className={`p-3 rounded-lg text-sm whitespace-pre-wrap ${m.role === 'user' ? 'bg-slate-100' : 'bg-indigo-50 border'}`}>
+                                    {m.text}
                                 </div>
                             ))}
-                            <button 
-                                onClick={() => {
-                                    const newId = `${view}-${Date.now()}`;
-                                    setAllData(prev => ({
-                                        ...prev,
-                                        [view]: [...(prev[view] || []), { id: newId, title: view === 'ביבליוגרפיה' ? 'מקור חדש' : 'פסקה חדשה', rawInput: '', refinedContent: '' }]
-                                    }));
-                                }}
-                                className="w-full py-4 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 font-bold hover:border-indigo-500 hover:text-indigo-600 transition-colors flex items-center justify-center gap-2"
-                            >
-                                <Plus size={20} />
-                                הוסף {view === 'ביבליוגרפיה' ? 'מקור' : 'פסקה'}
-                            </button>
-                            
-                            <div className="md:hidden mt-8 mb-4">
-                                <button onClick={downloadAsWord} className="w-full bg-emerald-600 text-white p-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-lg">
-                                    <Download size={16} /> הורדה כקובץ Word
-                                </button>
-                            </div>
                         </div>
-                    )}
-                </div>
-            </section>
+                        <div className="p-3 border-t flex gap-2">
+                            <input className="flex-1 p-2 border rounded-full" value={input} onChange={e => setInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()} />
+                            <button onClick={sendMessage} className="p-2 bg-indigo-600 text-white rounded-full"><Send size={16}/></button>
+                        </div>
+                    </div>
+                );
+            };
 
-            <section className={`w-full md:w-[45%] bg-white p-4 md:p-12 overflow-y-auto border-r shadow-inner ${showMobilePreview ? 'block' : 'hidden md:block'}`}>
-                 <div className="max-w-[21cm] mx-auto min-h-[29.7cm] font-serif" dir="rtl" style={{fontFamily: "'David', 'Times New Roman', serif"}}>
-                    <h3 className="text-center font-bold border-b-2 border-black pb-4 mb-8 text-xl md:text-2xl text-black">{paperTitle}</h3>
-                    {sections.map(sec => {
-                        const bubbles = allData[sec];
-                        if (!bubbles?.some(b => b.refinedContent)) return null;
-                        return (
-                            <div key={sec} className="mb-8">
-                                <h4 className="font-bold text-lg mb-4 text-black underline">{sec}</h4>
-                                {bubbles.map(b => b.refinedContent && (
-                                    <div key={b.id} className={`text-[11pt] md:text-[12pt] leading-[1.5] text-black mb-4 text-right preserve-lines ${sec === 'ביבליוגרפיה' ? 'pr-4 -indent-4' : ''}`}>
-                                        {b.refinedContent}
+            if (loadingAuth) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" size={48}/></div>;
+            if (!user) return <AuthScreen onAuthSuccess={setUser} />;
+            if (!level) return <WelcomeScreen user={user} onSelect={handleLevelSelect} onLogout={() => signOut(auth)} />;
+
+            return (
+                <div className="flex h-screen bg-white flex-col md:flex-row font-sans" dir="rtl">
+                    <aside className={`fixed inset-y-0 right-0 z-40 w-64 bg-slate-900 text-white p-6 transition-transform ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'} md:relative md:translate-x-0`}>
+                        <h1 className="text-xl font-bold flex gap-2 cursor-pointer" onClick={() => setLevel(null)}>
+                            <BookOpen className="text-indigo-400" /> ScholarBubbles
+                        </h1>
+                        <div className="text-xs mt-1 text-indigo-300">רמה: {WRITING_LEVELS[level].label}</div>
+                        <nav className="mt-8 space-y-1">
+                             <button onClick={() => {setView('question'); setMobileMenuOpen(false);}} className={`w-full text-right p-3 rounded-xl text-sm mb-2 ${view === 'question' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}>שאלת מחקר AI</button>
+                             <button onClick={() => {setView('search'); setMobileMenuOpen(false);}} className={`w-full text-right p-3 rounded-xl text-sm mb-6 ${view === 'search' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}>חיפוש מקורות AI</button>
+                            {sections.map(s => (
+                                <button key={s} onClick={() => {setView(s); setMobileMenuOpen(false);}} className={`w-full text-right p-3 rounded-xl text-sm ${view === s ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}>
+                                    {s}
+                                </button>
+                            ))}
+                        </nav>
+                        <button onClick={downloadAsWord} className="mt-8 w-full bg-emerald-600 p-2 rounded-xl flex justify-center gap-2 text-sm font-bold">
+                            <Download size={16}/> הורד Word
+                        </button>
+                    </aside>
+
+                    <main className="flex-1 flex overflow-hidden">
+                        <section className="flex-1 p-8 overflow-y-auto bg-slate-50">
+                            <div className="max-w-3xl mx-auto">
+                                <button className="md:hidden mb-4" onClick={() => setMobileMenuOpen(true)}><Menu/></button>
+                                <input className="w-full text-2xl font-black bg-transparent mb-6 outline-none" value={paperTitle} onChange={e => setPaperTitle(e.target.value)} />
+                                
+                                {view === 'question' ? (
+                                    <AIChatComponent 
+                                        title="גיבוש שאלת מחקר" 
+                                        subTitle="אני אעזור לך לחדד ולנסח את שאלת המחקר המדויקת ביותר."
+                                        messages={questionChatMessages}
+                                        setMessages={setQuestionChatMessages}
+                                        systemPrompt="אתה מנחה אקדמי מנוסה..."
+                                    />
+                                ) : view === 'search' ? (
+                                    <AIChatComponent 
+                                        title="חיפוש מקורות" 
+                                        subTitle="אני אמצא לך מקורות מידע."
+                                        messages={sourceChatMessages}
+                                        setMessages={setSourceChatMessages}
+                                        withSearchTool={true}
+                                        systemPrompt="אתה עוזר מחקר..."
+                                    />
+                                ) : (
+                                    <>
+                                        <h2 className="text-2xl font-bold mb-4">{view}</h2>
+                                        {allData[view]?.map(b => (
+                                            <div key={b.id} className="bg-white rounded-xl shadow p-4 mb-4">
+                                                <div className="text-xs text-slate-400 font-bold mb-2">{b.title}</div>
+                                                <textarea 
+                                                    className="w-full p-3 bg-slate-50 rounded-lg min-h-[100px]" 
+                                                    value={b.rawInput} 
+                                                    onChange={e => handleUpdate(b.id, {rawInput: e.target.value})}
+                                                    placeholder="כתוב כאן נקודות..."
+                                                />
+                                                <button onClick={() => handleRefine(b.id)} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm mt-2">
+                                                    {b.isRefining ? 'מעבד...' : 'עבד עם AI'}
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </>
+                                )}
+                            </div>
+                        </section>
+                        
+                        <section className="hidden md:block w-[40%] bg-white p-12 border-r shadow-inner overflow-y-auto">
+                            <div className="font-serif text-lg leading-relaxed">
+                                <h1 className="text-center text-2xl font-bold border-b-2 border-black pb-4 mb-8">{paperTitle}</h1>
+                                {sections.map(sec => (
+                                    <div key={sec} className="mb-6">
+                                        <h3 className="font-bold underline mb-2">{sec}</h3>
+                                        {allData[sec].map(b => b.refinedContent && <p key={b.id} className="mb-4">{b.refinedContent}</p>)}
                                     </div>
                                 ))}
                             </div>
-                        );
-                    })}
-                    {Object.values(allData).flat().every(b => !b.refinedContent) && (
-                        <div className="text-center py-40 text-slate-300 italic">הטקסט המוכח יופיע כאן...</div>
-                    )}
-                 </div>
-            </section>
-        </main>
-    </div>
-  );
-}
+                        </section>
+                    </main>
+                </div>
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

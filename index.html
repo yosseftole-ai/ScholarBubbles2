@@ -30,15 +30,16 @@
         import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, doc, setDoc, updateDoc, arrayUnion, serverTimestamp, getDoc, collection, addDoc, onSnapshot, query, orderBy, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
+        // הגדרות Firebase שלך
         const firebaseConfig = {
-            apiKey: "AIzaSyDT5flU7tNbivQ3aadqFJnGqgtSs-uikGo",
-            authDomain: "cholar-bubbles.firebaseapp.com",
-            projectId: "cholar-bubbles",
-            storageBucket: "cholar-bubbles.firebasestorage.app",
-            messagingSenderId: "965320932006",
-            appId: "1:965320932006:web:eeeefce099c0422d4e9267",
-            measurementId: "G-Q08F6MFNCD"
-        };
+  apiKey: "AIzaSyDT5flU7tNbivQ3aadqFJnGqgtSs-uikGo",
+  authDomain: "cholar-bubbles.firebaseapp.com",
+  projectId: "cholar-bubbles",
+  storageBucket: "cholar-bubbles.firebasestorage.app",
+  messagingSenderId: "965320932006",
+  appId: "1:965320932006:web:eeeefce099c0422d4e9267",
+  measurementId: "G-Q08F6MFNCD"
+};
 
         try {
             const app = initializeApp(firebaseConfig);
@@ -53,6 +54,7 @@
                 query, orderBy
             };
             window.firebaseInitialized = true;
+            // שידור אירוע שהכל מוכן
             window.dispatchEvent(new Event('firebase-ready'));
         } catch (e) {
             console.error("Firebase Init Error:", e);
@@ -65,6 +67,7 @@
         .chat-container { height: 500px; display: flex; flex-direction: column; }
         @media (max-width: 768px) { .chat-container { height: calc(100vh - 200px); } }
         .preserve-lines { white-space: pre-wrap; }
+        /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -77,10 +80,9 @@
         const { useState, useEffect, useRef, useCallback } = React;
         const { motion, AnimatePresence } = window.Motion;
 
-        // *** מפתח API של Gemini - מוגדר גלובלית ***
-        const GEMINI_API_KEY = "AIzaSyBxkiHrRf8mImoOVVtvbOfw-DIRA2i8vR0";
-
-        // --- רכיבי עזר ---
+        // --- מפתח API לבינה מלאכותית ---
+        const apiKey = "AIzaSyBxkiHrRf8mImoOVVtvbOfw-DIRA2i8vR0";
+        // --- קבועים ורכיבי עזר ---
         
         const Icon = ({ name, size = 20, className = "" }) => {
             useEffect(() => {
@@ -112,7 +114,7 @@
             'ביבליוגרפיה': []
         };
 
-        // --- רכיב צ'אט ---
+        // --- רכיב צ'אט (מחוץ ל-App למניעת רינדור מחדש) ---
         const AIChatComponent = ({ title, subTitle, systemPrompt, messages, setMessages, withSearchTool = false, user, trackAction }) => {
             const [input, setInput] = useState('');
             const [loading, setLoading] = useState(false);
@@ -133,41 +135,28 @@
 
                 try {
                     const payload = {
-                        contents: [...messages, userMsg].map(m => ({ 
-                            role: m.role === 'ai' ? 'model' : 'user', 
-                            parts: [{ text: m.text }] 
-                        })),
+                        contents: [...messages, userMsg].map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.text }] })),
                         systemInstruction: { parts: [{ text: systemPrompt }] }
                     };
-                    
-                    // הוספת Google Search אם נדרש
                     if (withSearchTool) {
-                        payload.tools = [{ googleSearch: {} }];
+                        payload.tools = [{ google_search: {} }];
                     }
                     
-                    // שימוש ב-API המתוקן
-                    const response = await fetch(
-                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${GEMINI_API_KEY}`, 
-                        {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        }
-                    );
+                    // שימוש במודל החזק ביותר: gemini-1.5-pro
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
                     
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        console.error("API Error:", errorData);
-                        throw new Error(`API Error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
-                    }
+                    if (!response.ok) throw new Error("API Error: " + response.status);
                     
                     const data = await response.json();
                     let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "מצטער, לא הצלחתי לעבד את הבקשה.";
                     
-                    // הוספת מקורות אם יש
                     const grounding = data.candidates?.[0]?.groundingMetadata?.groundingAttributions;
-                    if (grounding && grounding.length > 0) {
-                        aiText += "\n\n📚 מקורות שמצאתי:\n";
+                    if (grounding) {
+                        aiText += "\n\nמקורות שמצאתי:\n";
                         grounding.forEach(g => {
                             if (g.web?.uri && g.web?.title) {
                                 aiText += `• [${g.web.title}](${g.web.uri})\n`;
@@ -177,11 +166,7 @@
 
                     setMessages(prev => [...prev, { role: 'ai', text: cleanMarkdown(aiText) }]);
                 } catch (e) {
-                    console.error("Chat Error:", e);
-                    setMessages(prev => [...prev, { 
-                        role: 'ai', 
-                        text: `❌ שגיאה בתקשורת: ${e.message}\n\nוודא שמפתח ה-API תקין ופעיל.` 
-                    }]);
+                    setMessages(prev => [...prev, { role: 'ai', text: "שגיאה בתקשורת עם השרת (בדוק API Key)." }]);
                 }
                 setLoading(false);
             };
@@ -212,16 +197,8 @@
                         {loading && <div className="text-xs text-slate-400 animate-pulse">מקליד...</div>}
                     </div>
                     <div className="p-3 bg-white border-t flex gap-2">
-                        <input 
-                            className="flex-1 px-4 py-2 border rounded-full text-sm outline-none" 
-                            placeholder="כתוב כאן..." 
-                            value={input} 
-                            onChange={e => setInput(e.target.value)} 
-                            onKeyPress={e => e.key === 'Enter' && sendMessage()} 
-                        />
-                        <button onClick={sendMessage} className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center">
-                            <Icon name="send" size={16} />
-                        </button>
+                        <input className="flex-1 px-4 py-2 border rounded-full text-sm outline-none" placeholder="כתוב כאן..." value={input} onChange={e => setInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()} />
+                        <button onClick={sendMessage} className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center"><Icon name="send" size={16} /></button>
                     </div>
                 </div>
             );
@@ -234,22 +211,15 @@
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
 
-            const { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, doc, setDoc, serverTimestamp } = window.fbFunctions;
+            const { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, doc, setDoc, serverTimestamp, collection, addDoc } = window.fbFunctions;
             const auth = window.fbAuth;
             const db = window.fbDb;
 
             const saveUserToDB = async (user) => {
                 try {
                     const userRef = doc(db, 'users', user.uid);
-                    await setDoc(userRef, { 
-                        email: user.email, 
-                        displayName: user.displayName || 'משתמש', 
-                        lastLogin: serverTimestamp(), 
-                        uid: user.uid 
-                    }, { merge: true });
-                } catch (e) { 
-                    console.error("Error saving user to DB:", e); 
-                }
+                    await setDoc(userRef, { email: user.email, displayName: user.displayName || 'משתמש', lastLogin: serverTimestamp(), uid: user.uid }, { merge: true });
+                } catch (e) { console.error("Error saving user to DB:", e); }
             };
 
             const handleGoogleSignIn = async () => {
@@ -258,10 +228,7 @@
                     const result = await signInWithPopup(auth, provider);
                     await saveUserToDB(result.user);
                     onAuthSuccess(result.user);
-                } catch (err) { 
-                    console.error(err); 
-                    setError('שגיאה בהתחברות עם גוגל'); 
-                }
+                } catch (err) { console.error(err); setError('שגיאה בהתחברות עם גוגל'); }
             };
 
             const handleEmailAuth = async (e) => {
@@ -274,10 +241,7 @@
                     else result = await signInWithEmailAndPassword(auth, email, password);
                     await saveUserToDB(result.user);
                     onAuthSuccess(result.user);
-                } catch (err) { 
-                    console.error(err); 
-                    setError(isRegistering ? 'שגיאה בהרשמה' : 'שם משתמש או סיסמה שגויים'); 
-                }
+                } catch (err) { console.error(err); setError(isRegistering ? 'שגיאה בהרשמה' : 'שם משתמש או סיסמה שגויים'); }
                 setLoading(false);
             };
 
@@ -285,41 +249,14 @@
                 <div className="fixed inset-0 bg-slate-900 z-[60] flex items-center justify-center p-4 overflow-y-auto">
                     <div className="bg-white p-8 rounded-3xl text-center max-w-md w-full">
                         <h2 className="text-2xl font-black mb-4">כניסה למערכת</h2>
-                        <button onClick={handleGoogleSignIn} className="w-full border p-3 rounded-xl mb-4 font-bold flex justify-center gap-2">
-                            המשך עם Google
-                        </button>
+                        <button onClick={handleGoogleSignIn} className="w-full border p-3 rounded-xl mb-4 font-bold flex justify-center gap-2">המשך עם Google</button>
                         <form onSubmit={handleEmailAuth} className="space-y-3">
-                            <input 
-                                type="email" 
-                                placeholder="אימייל" 
-                                value={email} 
-                                onChange={e=>setEmail(e.target.value)} 
-                                className="w-full p-3 border rounded-xl" 
-                                required 
-                            />
-                            <input 
-                                type="password" 
-                                placeholder="סיסמה" 
-                                value={password} 
-                                onChange={e=>setPassword(e.target.value)} 
-                                className="w-full p-3 border rounded-xl" 
-                                required 
-                            />
+                            <input type="email" placeholder="אימייל" value={email} onChange={e=>setEmail(e.target.value)} className="w-full p-3 border rounded-xl" required />
+                            <input type="password" placeholder="סיסמה" value={password} onChange={e=>setPassword(e.target.value)} className="w-full p-3 border rounded-xl" required />
                             {error && <p className="text-red-500 text-xs">{error}</p>}
-                            <button 
-                                type="submit" 
-                                disabled={loading} 
-                                className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold"
-                            >
-                                {loading ? '...' : (isRegistering ? 'הרשמה' : 'כניסה')}
-                            </button>
+                            <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold">{loading ? '...' : (isRegistering ? 'הרשמה' : 'כניסה')}</button>
                         </form>
-                        <button 
-                            onClick={() => setIsRegistering(!isRegistering)} 
-                            className="mt-4 text-xs text-indigo-500 underline"
-                        >
-                            {isRegistering ? 'יש לך חשבון? התחבר' : 'אין לך חשבון? הירשם'}
-                        </button>
+                        <button onClick={() => setIsRegistering(!isRegistering)} className="mt-4 text-xs text-indigo-500 underline">{isRegistering ? 'יש לך חשבון? התחבר' : 'אין לך חשבון? הירשם'}</button>
                     </div>
                 </div>
             );
@@ -338,22 +275,10 @@
                         <h2 className="text-xl font-bold mb-6">בחר/י רמת כתיבה:</h2>
                         <div className="space-y-3">
                             {Object.entries(WRITING_LEVELS).map(([key, info]) => (
-                                <button 
-                                    key={key} 
-                                    onClick={() => onSelect(key)} 
-                                    className="w-full text-right p-4 border rounded-xl hover:bg-indigo-50 flex justify-between"
-                                >
-                                    <span className="font-bold">{info.label}</span>
-                                    <Icon name="chevron-left" />
-                                </button>
+                                <button key={key} onClick={() => onSelect(key)} className="w-full text-right p-4 border rounded-xl hover:bg-indigo-50 flex justify-between"><span className="font-bold">{info.label}</span><Icon name="chevron-left" /></button>
                             ))}
                         </div>
-                        <button 
-                            onClick={onLogout} 
-                            className="mt-8 text-sm text-red-500 flex items-center gap-2"
-                        >
-                            <Icon name="log-out" size={16} /> התנתק
-                        </button>
+                        <button onClick={onLogout} className="mt-8 text-sm text-red-500 flex items-center gap-2"><Icon name="log-out" size={16} /> התנתק</button>
                     </div>
                 </div>
             </div>
@@ -376,6 +301,7 @@
             const sections = ['תקציר', 'מבוא', 'גוף העבודה', 'ממצאים', 'סיכום', 'ביבליוגרפיה'];
 
             useEffect(() => {
+                // מנגנון Timeout כפול למניעת תקיעה על "טוען"
                 const timer = setTimeout(() => setLoadingAuth(false), 3000);
 
                 const checkFirebase = () => {
@@ -400,10 +326,7 @@
             }, []);
 
             const loadProjectsList = (uid) => {
-                const q = window.fbFunctions.query(
-                    window.fbFunctions.collection(window.fbDb, "users", uid, "projects"), 
-                    window.fbFunctions.orderBy("lastUpdated", "desc")
-                );
+                const q = window.fbFunctions.query(window.fbFunctions.collection(window.fbDb, "users", uid, "projects"), window.fbFunctions.orderBy("lastUpdated", "desc"));
                 window.fbFunctions.onSnapshot(q, (snapshot) => {
                     const projects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     setProjectsList(projects);
@@ -422,13 +345,9 @@
                 e.stopPropagation();
                 if (!confirm("למחוק?")) return;
                 try {
-                    await window.fbFunctions.deleteDoc(
-                        window.fbFunctions.doc(window.fbDb, "users", user.uid, "projects", projectId)
-                    );
+                    await window.fbFunctions.deleteDoc(window.fbFunctions.doc(window.fbDb, "users", user.uid, "projects", projectId));
                     if (projectId === currentProjectId) createNewProject();
-                } catch (err) { 
-                    alert("שגיאה במחיקה"); 
-                }
+                } catch (err) { alert("שגיאה במחיקה"); }
             };
 
             const createNewProject = () => {
@@ -448,52 +367,24 @@
                 if (!user) return;
                 setSaveStatus('saving');
                 try {
-                    const projectData = { 
-                        paperTitle, 
-                        allData, 
-                        level, 
-                        lastUpdated: window.fbFunctions.serverTimestamp() 
-                    };
+                    const projectData = { paperTitle, allData, level, lastUpdated: window.fbFunctions.serverTimestamp() };
                     if (currentProjectId) {
-                        await window.fbFunctions.updateDoc(
-                            window.fbFunctions.doc(window.fbDb, "users", user.uid, "projects", currentProjectId), 
-                            projectData
-                        );
+                        await window.fbFunctions.updateDoc(window.fbFunctions.doc(window.fbDb, "users", user.uid, "projects", currentProjectId), projectData);
                     } else {
-                        const docRef = await window.fbFunctions.addDoc(
-                            window.fbFunctions.collection(window.fbDb, "users", user.uid, "projects"), 
-                            projectData
-                        );
+                        const docRef = await window.fbFunctions.addDoc(window.fbFunctions.collection(window.fbDb, "users", user.uid, "projects"), projectData);
                         setCurrentProjectId(docRef.id);
                     }
                     setSaveStatus('saved');
-                } catch (e) { 
-                    console.error("Save error:", e);
-                    setSaveStatus('error'); 
-                }
+                } catch (e) { setSaveStatus('error'); }
             };
 
             const trackAction = async (actionType, details = {}) => {
                 if (!user || !window.fbDb) return;
-                try { 
-                    await window.fbFunctions.addDoc(
-                        window.fbFunctions.collection(window.fbDb, 'users', user.uid, 'activity_log'), 
-                        { 
-                            action: actionType, 
-                            ...details, 
-                            timestamp: window.fbFunctions.serverTimestamp() 
-                        }
-                    ); 
-                } catch (e) {
-                    console.error("Track error:", e);
-                }
+                try { await window.fbFunctions.addDoc(window.fbFunctions.collection(window.fbDb, 'users', user.uid, 'activity_log'), { action: actionType, ...details, timestamp: window.fbFunctions.serverTimestamp() }); } catch (e) {}
             };
 
             const handleUpdate = (id, updates) => {
-                setAllData(prev => ({ 
-                    ...prev, 
-                    [view]: prev[view].map(b => b.id === id ? {...b, ...updates} : b) 
-                }));
+                setAllData(prev => ({ ...prev, [view]: prev[view].map(b => b.id === id ? {...b, ...updates} : b) }));
             };
 
             const handleRefine = async (id) => {
@@ -512,7 +403,92 @@
                     משימה: כתוב פסקה מלאה ועשירה (200+ מילים), עם חלוקה לפסקאות משנה (שורת רווח). בלי כותרות/פתיחים/סיומות.`;
 
                 try {
-                    if(!GEMINI_API_KEY) throw new Error("No API Key configured");
-                    
-                    const response = await fetch(
-                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5
+                    if(!apiKey) throw new Error("No API Key");
+                    // שימוש במודל 1.5 Pro החזק והיציב ביותר
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
+                    });
+                    const resJson = await response.json();
+                    const text = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "שגיאה";
+                    handleUpdate(id, { refinedContent: cleanMarkdown(text), isRefining: false });
+                } catch (e) { alert("שגיאה ב-AI: " + e.message); handleUpdate(id, { isRefining: false }); }
+            };
+
+            const downloadAsWord = () => {
+                const styles = `<style>@page{size:A4;margin:2.54cm}body{direction:rtl;text-align:right;font-family:'David',serif;font-size:12pt;line-height:150%}h1{font-size:16pt;font-weight:bold;text-align:center;margin-bottom:24pt}h2{font-size:14pt;font-weight:bold;margin-top:18pt;border-bottom:1px solid #000}p{margin-bottom:12pt;text-align:right}</style>`;
+                let content = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='[http://www.w3.org/TR/REC-html40](http://www.w3.org/TR/REC-html40)'><head><meta charset='utf-8'><title>${paperTitle}</title>${styles}</head><body><h1>${paperTitle}</h1>${sections.map(sec => {
+                    const bubbles = allData[sec];
+                    if (bubbles?.some(b => b.refinedContent)) {
+                        return `<h2>${sec}</h2>` + bubbles.map(b => b.refinedContent ? `<p>${b.refinedContent.replace(/\n/g, '<br>')}</p>` : '').join('');
+                    }
+                    return '';
+                }).join('')}</body></html>`;
+                const blob = new Blob(['\ufeff', content], { type: 'application/msword' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `${paperTitle}.doc`;
+                link.click();
+            };
+
+            if (loadingAuth) return <div className="flex h-screen items-center justify-center text-indigo-600 font-bold">טוען מערכת...</div>;
+            if (!user) return <AuthScreen onAuthSuccess={setUser} />;
+            if (!level) return <WelcomeScreen user={user} onSelect={(l)=>{setLevel(l); trackAction("level_selected", {level:l})}} onLogout={() => window.fbFunctions.signOut(window.fbAuth)} />;
+
+            return (
+                <div className="flex h-[100dvh] overflow-hidden bg-white flex-col md:flex-row font-sans" dir="rtl">
+                    <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 text-white shadow-md z-50">
+                        <div className="flex items-center gap-4"><div className="flex items-center gap-2 font-bold"><Icon name="book-open" size={20} className="text-indigo-400" /> ScholarBubbles</div><button onClick={() => setShowMobilePreview(!showMobilePreview)} className="flex items-center gap-1 text-sm bg-slate-800 px-3 py-1 rounded-full">{showMobilePreview ? <><Icon name="edit-3" size={14} /> עריכה</> : <><Icon name="eye" size={14} /> תצוגה</>}</button></div>
+                        <div className="flex items-center gap-4"><button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}><Icon name={mobileMenuOpen ? "x" : "menu"} /></button></div>
+                    </div>
+                    <aside className={`fixed inset-y-0 right-0 z-40 w-64 bg-slate-900 text-white p-6 transform transition-transform duration-300 ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'} md:relative md:translate-x-0 md:block shadow-xl`}>
+                        <div className="mb-6 cursor-pointer" onClick={() => setLevel(null)}><h1 className="text-xl font-bold flex items-center gap-3"><Icon name="book-open" className="text-indigo-400" /> ScholarBubbles</h1><div className="text-[10px] mt-2 bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded inline-block">רמת {WRITING_LEVELS[level].label}</div></div>
+                        <div className="mb-6"><h3 className="text-xs font-bold text-slate-500 uppercase mb-2">העבודות שלי</h3><div className="space-y-1 max-h-32 overflow-y-auto"><button onClick={createNewProject} className="w-full text-right p-2 rounded text-xs text-indigo-300 hover:bg-slate-800 flex items-center gap-2"><Icon name="plus" size={12}/> עבודה חדשה</button>{projectsList.map(p => (<div key={p.id} className={`group flex items-center justify-between p-2 rounded text-xs ${currentProjectId === p.id ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}><button onClick={() => loadProject(p)} className="truncate w-full text-right">{p.paperTitle || 'ללא כותרת'}</button><button onClick={(e) => deleteProject(e, p.id)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 px-1"><Icon name="trash-2" size={12}/></button></div>))}</div></div>
+                        <nav className="flex-1 space-y-1 overflow-y-auto max-h-[calc(100vh-350px)]">
+                            <button onClick={() => {setView('question'); setMobileMenuOpen(false);}} className={`w-full text-right p-3 rounded-xl text-sm mb-2 border border-slate-700 flex items-center gap-2 ${view === 'question' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}><Icon name="help-circle" size={14}/> שאלת מחקר AI</button>
+                            <button onClick={() => {setView('search'); setMobileMenuOpen(false);}} className={`w-full text-right p-3 rounded-xl text-sm mb-6 border border-slate-700 flex items-center gap-2 ${view === 'search' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}><Icon name="search" size={14}/> חיפוש מקורות AI</button>
+                            <div className="text-[10px] text-slate-500 font-bold uppercase mb-2 mr-2">כתיבת העבודה</div>{sections.map(s => (<button key={s} onClick={() => {setView(s); setMobileMenuOpen(false);}} className={`w-full text-right flex items-center justify-between p-3 rounded-xl text-sm transition-all ${view === s ? 'bg-indigo-600 font-bold' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>{s}{allData[s]?.some(b => b.refinedContent) && <Icon name="check-circle" size={14} className="text-emerald-400" />}</button>))}
+                        </nav>
+                        <div className="mt-4 pt-4 border-t border-slate-800"><div className="text-[10px] text-slate-500 mb-1 truncate">{user.email}</div><div className={`text-[10px] font-bold ${saveStatus==='error'?'text-red-400':'text-emerald-400'}`}>{saveStatus==='saving'?'שומר...':saveStatus==='error'?'שגיאת שמירה':'נשמר'}</div><button onClick={downloadAsWord} className="w-full mt-4 bg-emerald-600 text-white p-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-emerald-700"><Icon name="download" size={14} /> הורד Word</button></div>
+                    </aside>
+                    {mobileMenuOpen && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setMobileMenuOpen(false)} />}
+                    <main className="flex-1 flex overflow-hidden relative">
+                        <section className={`flex-1 p-6 md:p-10 overflow-y-auto ${showMobilePreview ? 'hidden md:block' : 'block'}`}>
+                            <div className="max-w-3xl mx-auto pb-20">
+                                <input className="w-full bg-transparent text-2xl font-black mb-6 border-b-2 border-transparent focus:border-indigo-500 outline-none" value={paperTitle} onChange={e=>setPaperTitle(e.target.value)} />
+                                {view === 'question' ? <AIChatComponent title="גיבוש שאלת מחקר" subTitle="אני אעזור לך לחדד ולנסח את שאלת המחקר המדויקת ביותר." messages={questionChatMessages} setMessages={setQuestionChatMessages} systemPrompt="אתה מנחה אקדמי מנוסה. עזור לסטודנט לנסח שאלת מחקר אחת ברורה. תשובות קצרות." trackAction={trackAction} user={user} /> :
+                                 view === 'search' ? <AIChatComponent title="חיפוש מקורות חכם" subTitle="אמצא לך מקורות וקישורים." messages={sourceChatMessages} setMessages={setSourceChatMessages} withSearchTool={true} systemPrompt="אתה ספרן דיגיטלי. מצא מקורות מידע וקישורים ישירים. תן תיאור של משפט אחד לכל מקור." trackAction={trackAction} user={user} /> :
+                                 (<div className="pb-20"><h2 className="text-2xl md:text-3xl font-black mb-6 text-slate-900 px-2">{view}</h2>{allData[view]?.map(b => (
+                                    <div key={b.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6 mb-6 hover:shadow-md transition-all">
+                                        <div className="flex justify-between items-center mb-3"><span className={`font-bold text-xs uppercase tracking-wider ${b.id.includes('sum') ? 'text-indigo-600' : 'text-slate-400'}`}>{b.title}</span><button onClick={() => { if(confirm("למחוק?")) setAllData(prev => ({...prev, [view]: prev[view].filter(x => x.id !== b.id)})); }} className="text-red-300 hover:text-red-500"><Icon name="trash-2" size={14} /></button></div>
+                                        <textarea className="w-full min-h-[100px] p-4 rounded-xl bg-slate-50 text-sm leading-relaxed outline-none border border-transparent focus:border-indigo-300 focus:bg-white transition-all resize-none mb-4" value={b.rawInput} onChange={e => handleUpdate(b.id, {rawInput: e.target.value})} placeholder="כתוב כאן נקודות..." />
+                                        <div className="flex justify-end"><button onClick={() => handleRefine(b.id)} disabled={b.isRefining || !b.rawInput.trim()} className="bg-indigo-600 text-white px-4 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 disabled:opacity-50 disabled:shadow-none">{b.isRefining ? <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" /> : <Icon name="sparkles" size={16} />}{b.isRefining ? 'כותב...' : 'הרחב וסגנן עם AI'}</button></div>
+                                    </div>
+                                ))}
+                                <button onClick={() => { const newId = `${view}-${Date.now()}`; setAllData(prev => ({ ...prev, [view]: [...(prev[view] || []), { id: newId, title: view === 'ביבליוגרפיה' ? 'מקור חדש' : 'פסקה חדשה', rawInput: '', refinedContent: '' }] })); }} className="w-full py-4 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 font-bold hover:border-indigo-500 hover:text-indigo-600 transition-colors flex items-center justify-center gap-2"><Icon name="plus" size={20} /> הוסף {view === 'ביבליוגרפיה' ? 'מקור' : 'פסקה'}</button></div>)}
+                            </div>
+                        </section>
+                        <section className={`w-full md:w-[45%] bg-white p-12 overflow-y-auto border-r shadow-inner ${showMobilePreview ? 'block fixed inset-0 z-50 pt-20' : 'hidden md:block'}`}>
+                            {showMobilePreview && <button onClick={() => setShowMobilePreview(false)} className="absolute top-4 left-4 bg-slate-200 p-2 rounded-full md:hidden"><Icon name="x" /></button>}
+                             <div className="max-w-[21cm] mx-auto min-h-[29.7cm] font-serif" dir="rtl" style={{fontFamily: "'David', 'Times New Roman', serif"}}>
+                                <h3 className="text-center font-bold border-b-2 border-black pb-4 mb-8 text-xl md:text-2xl text-black">{paperTitle}</h3>
+                                {sections.map(sec => {
+                                    const bubbles = allData[sec];
+                                    if (!bubbles?.some(b => b.refinedContent)) return null;
+                                    return (<div key={sec} className="mb-8"><h4 className="font-bold text-lg mb-4 text-black underline">{sec}</h4>{bubbles.map(b => b.refinedContent && (<div key={b.id} className={`text-[12pt] leading-[1.5] text-black mb-4 text-justify preserve-lines ${sec === 'ביבליוגרפיה' ? 'pr-4 -indent-4' : ''}`}>{b.refinedContent}</div>))}</div>);
+                                })}
+                             </div>
+                        </section>
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
+
+

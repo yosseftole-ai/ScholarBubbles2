@@ -32,14 +32,14 @@
 
         // הגדרות Firebase שלך
         const firebaseConfig = {
-  apiKey: "AIzaSyDT5flU7tNbivQ3aadqFJnGqgtSs-uikGo",
-  authDomain: "cholar-bubbles.firebaseapp.com",
-  projectId: "cholar-bubbles",
-  storageBucket: "cholar-bubbles.firebasestorage.app",
-  messagingSenderId: "965320932006",
-  appId: "1:965320932006:web:eeeefce099c0422d4e9267",
-  measurementId: "G-Q08F6MFNCD"
-};
+          apiKey: "AIzaSyDT5flU7tNbivQ3aadqFJnGqgtSs-uikGo",
+          authDomain: "cholar-bubbles.firebaseapp.com",
+          projectId: "cholar-bubbles",
+          storageBucket: "cholar-bubbles.firebasestorage.app",
+          messagingSenderId: "965320932006",
+          appId: "1:965320932006:web:eeeefce099c0422d4e9267",
+          measurementId: "G-Q08F6MFNCD"
+        };
 
         try {
             const app = initializeApp(firebaseConfig);
@@ -78,19 +78,44 @@
 
     <script type="text/babel" data-type="module">
         const { useState, useEffect, useRef, useCallback } = React;
-        const { motion, AnimatePresence } = window.Motion;
+        // שימוש בטוח ב-Framer Motion למניעת קריסה אם הסקריפט לא נטען בזמן
+        const MotionLib = window.Motion || { motion: { div: 'div' }, AnimatePresence: ({children}) => <>{children}</> };
+        const { motion, AnimatePresence } = MotionLib;
 
-      
         const apiKey = "AIzaSyALIltlZM-_oCBHwEqJdl8nSMDywSyb1zM";
         
-        
+        // רכיב אייקון מתוקן ובטוח לשימוש עם React ו-Lucide CDN
         const Icon = ({ name, size = 20, className = "" }) => {
+            const ref = useRef(null);
+
             useEffect(() => {
-                if (window.lucide && window.lucide.createIcons) {
-                    window.lucide.createIcons();
+                if (!ref.current || !window.lucide) return;
+
+                // המרת שם האייקון מ-kebab-case ל-PascalCase (למשל: book-open -> BookOpen)
+                const pascalName = name.split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+                
+                // בדיקה אם האייקון קיים בספרייה
+                const iconDef = window.lucide.icons ? window.lucide.icons[pascalName] : null;
+
+                if (iconDef && window.lucide.createElement) {
+                    // ניקוי התוכן הקודם
+                    ref.current.innerHTML = '';
+                    
+                    // יצירת אלמנט ה-SVG באופן ידני והוספתו ל-DOM
+                    const svg = window.lucide.createElement(iconDef);
+                    
+                    svg.setAttribute('width', size);
+                    svg.setAttribute('height', size);
+                    if (className) svg.setAttribute('class', className);
+                    
+                    ref.current.appendChild(svg);
+                } else {
+                    // Fallback למקרה של בעיה בטעינת האייקון
+                    console.warn(`Icon ${name} (${pascalName}) not found`);
                 }
-            });
-            return <i data-lucide={name} style={{ width: size, height: size, display: 'inline-block' }} className={className}></i>;
+            }, [name, size, className]);
+
+            return <span ref={ref} style={{ display: 'inline-block', width: size, height: size }}></span>;
         };
 
         const cleanMarkdown = (text) => {
@@ -166,7 +191,8 @@
 
                     setMessages(prev => [...prev, { role: 'ai', text: cleanMarkdown(aiText) }]);
                 } catch (e) {
-                    setMessages(prev => [...prev, { role: 'ai', text: "שגיאה בתקשורת עם השרת (בדוק API Key)." }]);
+                    console.error(e);
+                    setMessages(prev => [...prev, { role: 'ai', text: "שגיאה בתקשורת עם השרת. אנא בדוק את החיבור לרשת ואת ה-API Key." }]);
                 }
                 setLoading(false);
             };
@@ -409,9 +435,17 @@
                         body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
                     });
                     const resJson = await response.json();
+                    
+                    if (resJson.error) {
+                        throw new Error(resJson.error.message);
+                    }
+
                     const text = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "שגיאה";
                     handleUpdate(id, { refinedContent: cleanMarkdown(text), isRefining: false });
-                } catch (e) { alert("שגיאה ב-AI: " + e.message); handleUpdate(id, { isRefining: false }); }
+                } catch (e) { 
+                    alert("שגיאה ב-AI: " + e.message); 
+                    handleUpdate(id, { isRefining: false }); 
+                }
             };
 
             const downloadAsWord = () => {

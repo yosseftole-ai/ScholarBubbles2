@@ -82,15 +82,7 @@
         const MotionLib = window.Motion || { motion: { div: 'div' }, AnimatePresence: ({children}) => <>{children}</> };
         const { motion, AnimatePresence } = MotionLib;
 
-       async function getAIResponse(userText) {
-    const response = await fetch('/api/chat', { // פנייה לשרת שלך ב-Vercel
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userText })
-    });
-    const data = await response.json();
-    return data.text; // מחזיר את התשובה מה-AI
-}
+        const apiKey = "";
         
         // רכיב אייקון מתוקן ובטוח לשימוש עם React ו-Lucide CDN
         const Icon = ({ name, size = 20, className = "" }) => {

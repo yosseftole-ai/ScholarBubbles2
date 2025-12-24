@@ -30,7 +30,6 @@
         import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, doc, setDoc, updateDoc, arrayUnion, serverTimestamp, getDoc, collection, addDoc, onSnapshot, query, orderBy, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // הגדרות Firebase
         const firebaseConfig = {
           apiKey: "AIzaSyDT5flU7tNbivQ3aadqFJnGqgtSs-uikGo",
           authDomain: "cholar-bubbles.firebaseapp.com",
@@ -79,8 +78,6 @@
         const MotionLib = window.Motion || { motion: { div: 'div' }, AnimatePresence: ({children}) => <>{children}</> };
         const { motion, AnimatePresence } = MotionLib;
 
-        // ה-apiKey הוסר מכאן לטובת אבטחה ב-Vercel
-        
         const Icon = ({ name, size = 20, className = "" }) => {
             const ref = useRef(null);
             useEffect(() => {
@@ -139,7 +136,6 @@
                 if(trackAction) trackAction(withSearchTool ? "search_query" : "research_chat", { query: currentInput });
 
                 try {
-                    // פנייה ל-API הפנימי ב-Vercel
                     const response = await fetch('/api/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -150,7 +146,10 @@
                         })
                     });
                     
-                    if (!response.ok) throw new Error("Server Error");
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || "Server Error");
+                    }
                     
                     const data = await response.json();
                     let aiText = data.text || "מצטער, לא הצלחתי לעבד את הבקשה.";
@@ -164,7 +163,7 @@
 
                     setMessages(prev => [...prev, { role: 'ai', text: cleanMarkdown(aiText) }]);
                 } catch (e) {
-                    setMessages(prev => [...prev, { role: 'ai', text: "שגיאה בתקשורת עם השרת." }]);
+                    setMessages(prev => [...prev, { role: 'ai', text: `שגיאה בתקשורת: ${e.message}` }]);
                 }
                 setLoading(false);
             };
@@ -396,7 +395,6 @@
                     משימה: כתוב פסקה מלאה ועשירה (200+ מילים), עם חלוקה לפסקאות משנה. בלי כותרות/פתיחים.`;
 
                 try {
-                    // פנייה ל-API הפנימי ב-Vercel לעיבוד הטקסט
                     const response = await fetch('/api/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -407,12 +405,16 @@
                         })
                     });
                     
-                    if (!response.ok) throw new Error("API Error");
+                    if (!response.ok) {
+                         const errorData = await response.json();
+                         throw new Error(errorData.error || "API Error");
+                    }
+                    
                     const resJson = await response.json();
-                    const text = resJson.text || "שגיאה";
+                    const text = resJson.text || "שגיאה בעיבוד התשובה";
                     handleUpdate(id, { refinedContent: cleanMarkdown(text), isRefining: false });
                 } catch (e) { 
-                    alert("שגיאה בעיבוד ה-AI"); 
+                    alert(`שגיאה ב-AI: ${e.message}`); 
                     handleUpdate(id, { isRefining: false }); 
                 }
             };
